@@ -15,3 +15,125 @@ Refer to the README.md for detailed instructions and examples.
 # ============================================================================
 # Your rules go here
 # ============================================================================
+configfile: "config/config.yaml"
+
+# Single sample setup
+SAMPLES = [config["sample_name"]]  # wrap in list for expand()
+SAMPLE = config["sample_name"]
+R1 = config["reads_r1"]
+R2 = config["reads_r2"]
+
+QC_DIR = "results/qc"
+TRIM_DIR = "results/processed_reads"
+ASM_DIR = "results/assembly"
+
+rule all:
+    input:
+        f"{QC_DIR}/multiqc_report.html",
+        f"{TRIM_DIR}/{SAMPLE}_R1.trimmed.fastq.gz",
+        f"{ASM_DIR}/contigs.fasta",
+        f"{QC_DIR}/assembly/quast/report.html",
+        f"{QC_DIR}/assembly/busco/short_summary.txt"
+
+########################################
+# 1. RAW QC
+########################################
+rule fastqc_raw:
+    input:
+        r1=R1,
+        r2=R2
+    output:
+        html1 = f"{QC_DIR}/raw/{SAMPLE}_R1_fastqc.html",
+        html2 = f"{QC_DIR}/raw/{SAMPLE}_R2_fastqc.html"
+    threads: 2
+    conda:
+        "envs/fastqc.yml"
+    shell:
+        """
+        mkdir -p {QC_DIR}/raw
+        fastqc {input.r1} {input.r2} -o {QC_DIR}/raw
+        """
+
+########################################
+# 2. MULTIQC
+########################################
+rule multiqc:
+    input:
+        expand(f"{QC_DIR}/raw/{{sample}}_R1_fastqc.html", sample=SAMPLES)
+    output:
+        f"{QC_DIR}/multiqc_report.html"
+    conda:
+        "envs/fastqc.yml"
+    shell:
+        """
+        multiqc {QC_DIR}/raw -o {QC_DIR}
+        """
+
+########################################
+# 3. TRIMMING
+########################################
+rule fastp:
+    input:
+        r1=f"data/raw_reads/{SAMPLE}_1.fastq.gz",
+        r2=f"data/raw_reads/{SAMPLE}_2.fastq.gz"
+    output:
+        r1_trim=f"{TRIM_DIR}/{SAMPLE}_R1.trimmed.fastq.gz",
+        r2_trim=f"{TRIM_DIR}/{SAMPLE}_R2.trimmed.fastq.gz"
+    conda:
+        "envs/fastp.yaml"
+    shell:
+        """
+        mkdir -p {TRIM_DIR}
+        fastp -i {input.r1} -I {input.r2} -o {output.r1_trim} -O {output.r2_trim}
+        """
+
+########################################
+# 4. ASSEMBLY
+########################################
+rule spades:
+    input:
+        r1=f"{TRIM_DIR}/{SAMPLE}_R1.trimmed.fastq.gz",
+        r2=f"{TRIM_DIR}/{SAMPLE}_R2.trimmed.fastq.gz"
+    output:
+        f"{ASM_DIR}/contigs.fasta"
+    threads: 8
+    conda:
+        "envs/spades.yaml"
+    shell:
+        """
+        mkdir -p {ASM_DIR}
+        spades.py -1 {input.r1} -2 {input.r2} -o {ASM_DIR} -t {threads}
+        """
+
+########################################
+# 5. QUAST
+########################################
+rule quast:
+    input:
+        f"{ASM_DIR}/contigs.fasta"
+    output:
+        f"{QC_DIR}/assembly/quast/report.html"
+    conda:
+        "envs/quast.yaml"
+    shell:
+        """
+        mkdir -p {QC_DIR}/assembly/quast
+        quast {input} -o {QC_DIR}/assembly/quast
+        """
+
+########################################
+# 6. BUSCO
+########################################
+rule busco:
+    input:
+        f"{ASM_DIR}/contigs.fasta"
+    output:
+        f"{QC_DIR}/assembly/busco/short_summary.txt"
+    conda:
+        "envs/busco.yaml"
+    shell:
+        """
+        mkdir -p {QC_DIR}/assembly/busco
+        busco -i {input} -l {config['busco_lineage']} -o busco -m genome --out_path {QC_DIR}/assembly/busco
+        cp {QC_DIR}/assembly/busco/busco/short_summary*.txt {output}
+        """
