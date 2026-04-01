@@ -1,0 +1,13 @@
+sample_name: "serratia"
+
+reads_r1: "data/raw_reads/SRR12079418_1.fastq.gz"
+reads_r2: "data/raw_reads/SRR12079418_2.fastq.gz"
+
+organism: "Serratia marcescens"
+expected_genome_size: "5m"
+
+busco_lineage: "bacteria_odb10"
+
+assembly:
+  threads: 8
+  memory_gb: 16
